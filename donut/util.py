@@ -18,6 +18,8 @@ from transformers.modeling_utils import PreTrainedModel
 from zss import Node
 
 
+from tqdm import tqdm
+
 def save_json(write_path: Union[str, bytes, os.PathLike], save_obj: Any):
     with open(write_path, "w") as f:
         json.dump(save_obj, f)
@@ -62,10 +64,11 @@ class DonutDataset(Dataset):
         self.sort_json_key = sort_json_key
 
         self.dataset = load_dataset(dataset_name_or_path, split=self.split)
+        #print(self.dataset)
         self.dataset_length = len(self.dataset)
 
         self.gt_token_sequences = []
-        for sample in self.dataset:
+        for sample in tqdm(self.dataset):
             ground_truth = json.loads(sample["ground_truth"])
             if "gt_parses" in ground_truth:  # when multiple ground truths are available, e.g., docvqa
                 assert isinstance(ground_truth["gt_parses"], list)
@@ -73,7 +76,7 @@ class DonutDataset(Dataset):
             else:
                 assert "gt_parse" in ground_truth and isinstance(ground_truth["gt_parse"], dict)
                 gt_jsons = [ground_truth["gt_parse"]]
-
+            #print(self.gt_token_sequences)
             self.gt_token_sequences.append(
                 [
                     task_start_token
