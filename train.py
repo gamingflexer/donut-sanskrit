@@ -18,12 +18,28 @@ import torch
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers.tensorboard import TensorBoardLogger
 from pytorch_lightning.plugins import CheckpointIO
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.utilities import rank_zero_only
 from sconf import Config
 
 from donut import DonutDataset
 from lightning_module import DonutDataPLModule, DonutModelPLModule
 
+import wandb
+
+# start a new wandb run to track this script
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="homebrew",
+    
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": 3e-5,
+    "architecture": "donut-transformer",
+    "dataset": "private",
+    "epochs": 40,
+    }
+)
 
 class CustomCheckpointIO(CheckpointIO):
     def save_checkpoint(self, checkpoint, path, storage_options=None):
@@ -48,7 +64,7 @@ def save_config_file(config, path):
     print(config.dumps())
     with open(save_path, "w") as f:
         f.write(config.dumps(modified_color=None, quote_str=True))
-        print(f"Config is saved at {save_path}")
+        #print(f"Config is saved at {save_path}")
 
 
 def train(config):
@@ -62,6 +78,8 @@ def train(config):
     for i, dataset_name_or_path in enumerate(config.dataset_name_or_paths):
         task_name = os.path.basename(dataset_name_or_path)  # e.g., cord-v2, docvqa, rvlcdip, ...
         
+        task_name = "custom_dataset"
+
         # add categorical special tokens (optional)
         if task_name == "rvlcdip":
             model_module.model.decoder.add_special_tokens([
@@ -80,9 +98,10 @@ def train(config):
                     donut_model=model_module.model,
                     max_length=config.max_length,
                     split=split,
-                    task_start_token=config.task_start_tokens[i]
-                    if config.get("task_start_tokens", None)
-                    else f"<s_{task_name}>",
+                    # task_start_token=config.task_start_tokens[i]
+                    # if config.get("task_start_tokens", None)
+                    # else f"<s_{task_name}>",
+                    task_start_token = f"<s_custom_dataset>",
                     prompt_end_token="<s_answer>" if "docvqa" in dataset_name_or_path else f"<s_{task_name}>",
                     sort_json_key=config.sort_json_key,
                 )
@@ -92,14 +111,26 @@ def train(config):
             # set prompt_end_token to "<s_answer>"
     data_module.train_datasets = datasets["train"]
     data_module.val_datasets = datasets["validation"]
-
+    
+    #wandb
+    loggers = []
     logger = TensorBoardLogger(
         save_dir=config.result_path,
         name=config.exp_name,
         version=config.exp_version,
-        default_hp_metric=False,
-    )
+        default_hp_metric=False,)
+    loggers.append(logger)
 
+    if config.get("wandb", False):
+        wb_logger = WandbLogger(
+            project=config.exp_name,
+            name=config.exp_version,
+            save_dir=config.result_path,
+            config=config,
+            log_model=True,
+        )
+        loggers.append(wb_logger)
+        
     lr_callback = LearningRateMonitor(logging_interval="step")
 
     checkpoint_callback = ModelCheckpoint(
@@ -126,7 +157,7 @@ def train(config):
         gradient_clip_val=config.gradient_clip_val,
         precision=16,
         num_sanity_val_steps=0,
-        logger=logger,
+        logger=loggers,
         callbacks=[lr_callback, checkpoint_callback],
     )
 
