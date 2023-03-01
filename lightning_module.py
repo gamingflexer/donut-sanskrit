@@ -20,30 +20,35 @@ from torch.utils.data import DataLoader
 
 from donut import DonutConfig, DonutModel
 
+import os
+import wandb
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 class DonutModelPLModule(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.config = config
 
-        if self.config.get("pretrained_model_name_or_path", False):
-            self.model = DonutModel.from_pretrained(
-                self.config.pretrained_model_name_or_path,
+        # if self.config.get("pretrained_model_name_or_path", False):
+        #     self.model = DonutModel.from_pretrained(
+        #         self.config.pretrained_model_name_or_path,
+        #         input_size=self.config.input_size,
+        #         max_length=self.config.max_length,
+        #         align_long_axis=self.config.align_long_axis,
+        #         ignore_mismatched_sizes=True,
+        #     )
+        # else:
+        self.model = DonutModel(
+            config=DonutConfig(
                 input_size=self.config.input_size,
                 max_length=self.config.max_length,
                 align_long_axis=self.config.align_long_axis,
-                ignore_mismatched_sizes=True,
+                # with DonutConfig, the architecture customization is available, e.g.,
+                # encoder_layer=[2,2,14,2], decoder_layer=4, ...
             )
-        else:
-            self.model = DonutModel(
-                config=DonutConfig(
-                    input_size=self.config.input_size,
-                    max_length=self.config.max_length,
-                    align_long_axis=self.config.align_long_axis,
-                    # with DonutConfig, the architecture customization is available, e.g.,
-                    # encoder_layer=[2,2,14,2], decoder_layer=4, ...
-                )
-            )
+        )
 
     def training_step(self, batch, batch_idx):
         image_tensors, decoder_input_ids, decoder_labels = list(), list(), list()
@@ -55,6 +60,7 @@ class DonutModelPLModule(pl.LightningModule):
         decoder_input_ids = torch.cat(decoder_input_ids)
         decoder_labels = torch.cat(decoder_labels)
         loss = self.model(image_tensors, decoder_input_ids, decoder_labels)[0]
+        wandb.watch(self.model)
         self.log_dict({"train_loss": loss}, sync_dist=True)
         return loss
 
